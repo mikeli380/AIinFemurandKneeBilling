@@ -1,7 +1,7 @@
-pkl_file_path: 'Data\Processed\Femur and Knee procedures_CPT_database_dataset_module.pickle'
+pkl_file_path: ''
 ollama_model: 'mistral-nemo'
-output_directory: 'Femur_and_Knee_positive_mistral_test_5_21'
-sample_cpt_database: Data\CPT_Databases\Leg and Ankle procedures_CPT_database.json
+output_directory: 'Femur_and_Knee'
+sample_cpt_database: 
 sample_type: 'Positive'
 sample_number: 1000
 temperature: 0
