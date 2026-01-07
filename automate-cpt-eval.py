@@ -1,26 +1,38 @@
+import json
+import ollama
 import yaml
 import random
 import pandas as pd
 import os
-import json
-import ollama
 from pydantic import BaseModel
 from llama_index.llms.ollama import Ollama
-from llama_index.core.program import LLMTextCompletionProgram
+from llama_index.core.program import LLMCompletionProgram
 from enum import Enum
-#Set up prompt CPT Description: "{cpt_description}"
+#Set up prompt CPT Description: "{cpt_description}" 
+
+#Binary Response Trial Template
 prompt_template_str = """
-Given the following orthopedic operational note, the associated CPT code, please evaluate whether the CPT code accurately reflects the procedures described in the note. If the code is suitable, confirm that the code aligns with the documented procedure. If it is not suitable, suggest an alternative CPT code that better matches the procedural details provided in the operational note.
+Given the following orthopedic operative note, the associated CPT code, and its description, please evaluate whether the CPT code accurately reflects the operativeedures described in the note. If the code is suitable, confirm that the code aligns with the documented operativeedure.
 Type of orthopedic surgery: "{type_of_orthopedic_surgery}"
-Operational Note: "{operational_note}"
+Operational note: "{operational_note}"
 CPT Code: "{cpt_code}"
 CPT Description: "{cpt_description}"
-Please provide the output in a one word "Yes" or "No" format with a Yes for a correct CPT code, and a No for an incorrect CPT code.  
-In your evaluation, consider factors such as the specific procedures performed, any anatomical details, the surgical approach, and any modifiers that may apply based on the documentation. 
-DO NOT MAKE UP ANY INFORMATION.
+Please provide the output in a one word "Yes" or "No" format with a Yes for a correct CPT code, and a No for an incorrect CPT code. Do not include anything else.
+In your evaluation, consider factors such as the specific operativeedures performed, any anatomical details, the surgical approach, and any modifiers that may apply based on the documentation. DO NOT MAKE UP ANY INFORMATION.
 """
+
+# Confidece-Response Trials
+# prompt_template_str = """
+# Given the following orthopedic operative note, the associated CPT code, and its description, please evaluate whether the CPT code accurately reflects the operativeedures described in the note. If the code is suitable, confirm that the code aligns with the documented operativeedure.
+# Type of orthopedic surgery: "{type_of_orthopedic_surgery}"
+# Operational note: "{operational_note}"
+# CPT Code: "{cpt_code}"
+# CPT Description: "{cpt_description}"
+# Please provide the output in a numeric format from a 0 to a 100 scale with a 100 representing complete confidence for a correct CPT code, and a 0 representing complete confidence if it is an incorrect CPT code. Do not include anything else.
+# In your evaluation, consider factors such as the specific operativeedures performed, any anatomical details, the surgical approach, and any modifiers that may apply based on the documentation. DO NOT MAKE UP ANY INFORMATION.
+# """
 # Load the config file
-with open('Pipeline\config.yaml', 'r') as f:
+with open('setup.yaml', 'r') as f:
    config = yaml.safe_load(f)
 
 #Load config variables
@@ -33,8 +45,7 @@ sample_type = config['sample_type']
 sample_number = config['sample_number']
 temperature = config['temperature']
 
-type_of_orthopedic_surgery = variables.get('type_of_orthopedic_surgery', 'Orthopedic Surgery')
-length_of_overall_explanation = variables.get('length_of_overall_explanation', 3)
+type_of_orthopedic_surgery = variables.get('type_of_orthopedic_surgery', 'orthopedic Surgery')
 
 # Load the .pkl file
 df = pd.read_pickle(pkl_file_path)
@@ -43,21 +54,7 @@ df = pd.read_pickle(pkl_file_path)
 if not os.path.exists(output_directory):
    os.makedirs(output_directory)
 
-# # Define the data model
-# class CPTCodeSuitability(BaseModel):
-#    b_documentation_validation: str
-# # d_documentation_validation: str
-# # Set up the LLM
-# llm = Ollama(model=ollama_model, request_timeout=9000.0)
-# # Set up the program
-# program = LLMTextCompletionProgram.from_defaults(
-#    llm=llm,
-#    output_cls=CPTCodeSuitability,
-#    prompt_template_str=prompt_template_str,
-#    verbose=True,
-# )
-
-#Produce Random Code
+#Produce Random CPT Code
 def get_random_cpt_description(file_path):
    with open(file_path, 'r') as file:
        data = json.load(file)
@@ -65,13 +62,12 @@ def get_random_cpt_description(file_path):
    cpt_description = str(data[random_code].get("CPT Code Description", "No description available"))
    return random_code, cpt_description
 
-# Process each row
+# Prepare each note for trial
 for index, row in df.head(sample_number).iterrows():
-    ENCOUNTER_ID = row['ENCOUNTER_ID']
-    PROC_NOTE_TEXT = row['PROC_NOTE_TEXT']
-    ORTHO_PROC_CPT = row['ORTHO_PROC_CPT']  # Should be a list of CPT codes
+    operative_note_ = row['operative_note_']
+    ortho_operative_CPT = row['ortho_operative_CPT']  # Should be a list of CPT codes
     CPT_GUIDELINE = row['CPT_GUIDELINE']  # List of dictionaries
-    for idx, cpt_code in enumerate(ORTHO_PROC_CPT):
+    for idx, cpt_code in enumerate(ortho_operative_CPT):
         # Match CPT code and guideline by index
         if idx < len(CPT_GUIDELINE):
             cpt_guideline = CPT_GUIDELINE[idx]
@@ -82,7 +78,7 @@ for index, row in df.head(sample_number).iterrows():
     if sample_type.lower() == 'positive':
         # Prepare input variables for the prompt
         input_variables = {
-        'operational_note': PROC_NOTE_TEXT,
+        'operational_note': operative_note_,
         'cpt_code': cpt_code,
         'cpt_description': cpt_description,
         'type_of_orthopedic_surgery': type_of_orthopedic_surgery,
@@ -90,11 +86,11 @@ for index, row in df.head(sample_number).iterrows():
          }
     else:
         sampled_cpt, sampled_cpt_d = get_random_cpt_description(cpt_database)
-        ORTHO_PROC_CPT = sampled_cpt  # Sampled CPT
+        ortho_operative_CPT = sampled_cpt  # Sampled CPT
         CPT_GUIDELINE = sampled_cpt_d  # Sampled description
          # Prepare input variables for the prompt
         input_variables = {
-            'operational_note': PROC_NOTE_TEXT,
+            'operational_note': operative_note_,
             'cpt_code': sampled_cpt,
             'cpt_description': sampled_cpt_d,
             'type_of_orthopedic_surgery': type_of_orthopedic_surgery,
@@ -103,7 +99,7 @@ for index, row in df.head(sample_number).iterrows():
       
     formatted_prompt = prompt_template_str.format(**input_variables)
 
-    # Run the LLM
+    # Prompt the language model
     ChatResponse = ollama.chat(
         model= ollama_model,
         messages=[
@@ -114,14 +110,12 @@ for index, row in df.head(sample_number).iterrows():
             ],
         options={"temperature":temperature}
     )
-       # Convert the output to dict
+       #Format the output
     response = ChatResponse['message']['content']
 
     # Prepare output data
     if sample_type.lower() == 'positive':
         output_data = {
-            'ENCOUNTER_ID': ENCOUNTER_ID,
-            'PROC_NOTE_TEXT': PROC_NOTE_TEXT,
             'sample_type': 'Positive',
             'cpt_code': cpt_code,
             'cpt_description': cpt_description,
@@ -129,8 +123,6 @@ for index, row in df.head(sample_number).iterrows():
         }
     else:
         output_data = {
-            'ENCOUNTER_ID': ENCOUNTER_ID,
-            'PROC_NOTE_TEXT': PROC_NOTE_TEXT,
             'sample_type': 'Negative',
             'cpt_code': cpt_code,
             'cpt_description': cpt_description,
@@ -139,11 +131,21 @@ for index, row in df.head(sample_number).iterrows():
             'false_code_description': sampled_cpt_d
         }
 
-    # Save to JSON file
-    filename = f"{ENCOUNTER_ID}_{cpt_code}.json"
-    filepath = os.path.join(output_directory, filename)
-    with open(filepath, 'w') as f:
-        json.dump(output_data, f, indent=2)
-    with open(output_directory + "\output.txt", "a", encoding='utf-8') as file:
-        file.write(f"{ENCOUNTER_ID}, {cpt_code}, "+ response + "\n")
+# Save output_data dictionary to CSV
+csv_filepath = os.path.join(output_directory, csv_filename)
+
+with open(csv_filepath, 'w', newline='', encoding='utf-8') as f:
+    writer = csv.DictWriter(f, fieldnames=output_data.keys())
+    writer.writeheader()
+    writer.writerow(output_data)
+
+# Append to master CSV
+master_csv = os.path.join(output_directory, "output.csv")
+file_exists = os.path.isfile(master_csv)
+
+with open(master_csv, 'a', newline='', encoding='utf-8') as file:
+    writer = csv.DictWriter(f, fieldnames=output_data.keys())
+    if not file_exists:
+        writer.writeheader()
+    writer.writerow(output_data)
 
